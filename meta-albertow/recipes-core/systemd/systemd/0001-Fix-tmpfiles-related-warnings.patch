@@ -1,0 +1,40 @@
+From cca7bbd0475cf5b9af1508582af3caefbffc5c66 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Krzysztof=20Drobi=C5=84ski?= <krzysztof@kd-solutions.pl>
+Date: Wed, 27 May 2026 15:25:14 +0200
+Subject: [PATCH] Fix tmpfiles related warnings
+
+Fixes
+
+    qemux86-64 systemd-tmpfiles[243]: /usr/lib/tmpfiles.d/tmp.conf:12: Duplicate line for path "/var/tmp", ignoring.
+    qemux86-64 systemd-tmpfiles[243]: /usr/lib/tmpfiles.d/var.conf:14: Duplicate line for path "/var/log", ignoring.
+
+Upstream-Status: Inappropriate [oe-specific]
+---
+ tmpfiles.d/tmp.conf    | 1 -
+ tmpfiles.d/var.conf.in | 1 -
+ 2 files changed, 2 deletions(-)
+
+diff --git a/tmpfiles.d/tmp.conf b/tmpfiles.d/tmp.conf
+index 0052719b78..f6fa41cb8f 100644
+--- a/tmpfiles.d/tmp.conf
++++ b/tmpfiles.d/tmp.conf
+@@ -9,4 +9,3 @@
+ 
+ # Clear tmp directories separately, to make them easier to override
+ q /tmp 1777 root root 10d
+-q /var/tmp 1777 root root 30d
+diff --git a/tmpfiles.d/var.conf.in b/tmpfiles.d/var.conf.in
+index 8e1a9c0cfc..7097740658 100644
+--- a/tmpfiles.d/var.conf.in
++++ b/tmpfiles.d/var.conf.in
+@@ -11,7 +11,6 @@ q /var 0755 - - -
+ 
+ L /var/run - - - - ../run
+ 
+-d /var/log 0755 - - -
+ {% if ENABLE_UTMP %}
+ f /var/log/wtmp 0664 root utmp -
+ f /var/log/btmp 0660 root utmp -
+-- 
+2.51.0
+
