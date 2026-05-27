@@ -1,0 +1,177 @@
+#!/bin/sh
+set -eu
+
+ARCH="${1:-}"
+IMAGE="${2:-}"
+
+SSH_PORT="${SSH_PORT:-2222}"
+HTTP_PORT="${HTTP_PORT:-3000}"
+HOST_IP="${HOST_IP:-0.0.0.0}"
+DATA_SIZE="${DATA_SIZE:-2G}"
+KVM_ARGS=""
+
+usage() {
+    cat <<'EOF'
+Usage: run-qemu ARCH IMAGE
+
+Boot IMAGE with a read-only squashfs rootfs on /dev/vda and a persistent ext4
+data disk mounted by the image at /data.
+
+Architectures:
+  aarch64
+  x86-64
+  kvm      Native host architecture with KVM acceleration
+
+Environment:
+  DEPLOY      Yocto deploy image directory.
+  DATA_IMAGE  Persistent ext4 data image path.
+  DATA_SIZE   Size used when creating DATA_IMAGE. Default: 2G
+  SSH_PORT    Host SSH forwarding port. Default: 2222
+  HTTP_PORT   Host HTTP forwarding port. Default: 3000
+  HOST_IP     Host interface for forwarded ports. Default: 0.0.0.0
+  QEMU        qemu-system executable.
+
+Examples:
+  scripts/run-qemu aarch64 redmine-image
+  scripts/run-qemu x86-64 redmine-test-image
+  scripts/run-qemu kvm redmine-test-image
+  DATA_IMAGE=./redmine-data.ext4 scripts/run-qemu x86-64
+EOF
+}
+
+case "${ARCH}" in
+    -h|--help|"")
+        usage
+        exit 0
+        ;;
+    aarch64)
+        ARCH="aarch64"
+        MACHINE="qemuarm64"
+        KERNEL_NAME="Image-${MACHINE}.bin"
+        QEMU_DEFAULT="qemu-system-aarch64"
+        MACHINE_ARGS="-machine virt -cpu cortex-a57"
+        SERIAL_ARGS=""
+        APPEND_EXTRA="console=ttyAMA0,115200"
+        ;;
+    x86-64)
+        ARCH="x86-64"
+        MACHINE="qemux86-64"
+        KERNEL_NAME="bzImage-${MACHINE}.bin"
+        QEMU_DEFAULT="qemu-system-x86_64"
+        MACHINE_ARGS="-machine q35,i8042=off -cpu Skylake-Client"
+        SERIAL_ARGS="-serial mon:stdio"
+        APPEND_EXTRA="console=ttyS0,115200 oprofile.timer=1 tsc=reliable no_timer_check rcupdate.rcu_expedited=1"
+        ;;
+    kvm|KVM)
+        HOST_ARCH="$(uname -m)"
+        case "${HOST_ARCH}" in
+            aarch64|arm64)
+                ARCH="aarch64"
+                MACHINE="qemuarm64"
+                KERNEL_NAME="Image-${MACHINE}.bin"
+                QEMU_DEFAULT="qemu-system-aarch64"
+                MACHINE_ARGS="-machine virt -cpu host"
+                KVM_ARGS="-enable-kvm"
+                SERIAL_ARGS=""
+                APPEND_EXTRA="console=ttyAMA0,115200"
+                ;;
+            x86_64|amd64)
+                ARCH="x86-64"
+                MACHINE="qemux86-64"
+                KERNEL_NAME="bzImage-${MACHINE}.bin"
+                QEMU_DEFAULT="qemu-system-x86_64"
+                MACHINE_ARGS="-machine q35,i8042=off -cpu host"
+                KVM_ARGS="-enable-kvm"
+                SERIAL_ARGS="-serial mon:stdio"
+                APPEND_EXTRA="console=ttyS0,115200 oprofile.timer=1 tsc=reliable no_timer_check rcupdate.rcu_expedited=1"
+                ;;
+            *)
+                echo "Unsupported host architecture for KVM: ${HOST_ARCH}" >&2
+                exit 1
+                ;;
+        esac
+        if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            echo "KVM requested, but /dev/kvm is not accessible by this user" >&2
+            exit 1
+        fi
+        ;;
+    *)
+        echo "Unsupported architecture: ${ARCH}" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
+
+if [ -z "${IMAGE}" ]; then
+        usage
+        exit 1
+fi
+
+case "${IMAGE}" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+esac
+
+QEMU="${QEMU:-${QEMU_DEFAULT}}"
+DEPLOY="${DEPLOY:-build/tmp/deploy/images/${MACHINE}}"
+KERNEL="${DEPLOY}/${KERNEL_NAME}"
+ROOTFS="${DEPLOY}/${IMAGE}-${MACHINE}.rootfs.squashfs"
+DATA_IMAGE="${DATA_IMAGE:-$HOME/${IMAGE}.data.ext4}"
+
+for path in "${KERNEL}" "${ROOTFS}"; do
+    if [ ! -e "${path}" ]; then
+        echo "Missing required file: ${path}" >&2
+        exit 1
+    fi
+done
+
+if ! command -v "${QEMU}" >/dev/null 2>&1; then
+    echo "Missing QEMU executable: ${QEMU}" >&2
+    exit 1
+fi
+
+if [ ! -e "${DATA_IMAGE}" ]; then
+    if ! command -v truncate >/dev/null 2>&1; then
+        echo "Missing truncate executable required to create ${DATA_IMAGE}" >&2
+        exit 1
+    fi
+    if ! command -v mkfs.ext4 >/dev/null 2>&1; then
+        echo "Missing mkfs.ext4 executable required to create ${DATA_IMAGE}" >&2
+        exit 1
+    fi
+    echo "Creating data image: ${DATA_IMAGE} (${DATA_SIZE})"
+    truncate -s "${DATA_SIZE}" "${DATA_IMAGE}"
+    mkfs.ext4 -F -L rw-data "${DATA_IMAGE}" >/dev/null
+elif command -v blkid >/dev/null 2>&1; then
+    DATA_TYPE="$(blkid -o value -s TYPE "${DATA_IMAGE}" 2>/dev/null || true)"
+    if [ "${DATA_TYPE}" != "ext4" ]; then
+        echo "Existing data image is not ext4: ${DATA_IMAGE}" >&2
+        echo "Refusing to format it automatically. Provide a different DATA_IMAGE or format it as ext4." >&2
+        exit 1
+    fi
+fi
+
+# Use virtio block for rootfs so the kernel sees it as /dev/vda, matching the
+# qemuboot configuration generated for qemux86-64 and qemuarm64.
+exec "${QEMU}" \
+    ${KVM_ARGS} \
+    ${MACHINE_ARGS} \
+    -m 2048 \
+    -smp 4 \
+    -kernel "${KERNEL}" \
+    -drive if=none,file="${ROOTFS}",format=raw,id=drive0 \
+    -device virtio-blk-pci,drive=drive0,id=blk0 \
+    -drive if=none,file="${DATA_IMAGE}",format=raw,id=drive1 \
+    -device virtio-blk-pci,drive=drive1,id=blk1 \
+    -netdev user,id=net0,hostfwd=tcp:"${HOST_IP}":"${SSH_PORT}"-:22,hostfwd=tcp:"${HOST_IP}":"${HTTP_PORT}"-:3000 \
+    -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:02 \
+    -object rng-random,filename=/dev/urandom,id=rng0 \
+    -device virtio-rng-pci,rng=rng0 \
+    -device virtio-serial-pci \
+    -chardev null,id=virtcon \
+    -device virtconsole,chardev=virtcon \
+    ${SERIAL_ARGS} \
+    -nographic \
+    -append "root=/dev/vda rootwait rootfstype=squashfs ro ${APPEND_EXTRA} ip=dhcp net.ifnames=0 swiotlb=0"
