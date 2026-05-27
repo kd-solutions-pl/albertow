@@ -1,0 +1,12 @@
+header:
+  version: 21
+  includes:
+    - kas/albertow.yaml
+
+repos:
+  meta-redmine:
+    url: "https://github.com/kd-solutions-pl/meta-redmine.git"
+    branch: "main"
+    layers:
+      .:
+ 
