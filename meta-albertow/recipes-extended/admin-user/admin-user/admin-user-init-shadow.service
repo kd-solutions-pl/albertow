@@ -1,0 +1,13 @@
+[Unit]
+Description=Initialize admin user password file
+RequiresMountsFor=/data
+ConditionPathIsReadWrite=/data
+Before=getty.target
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/admin-user-init-shadow
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+#
+# /etc/pam.d/common-auth - authentication settings common to all services
+#
+# Password-file credentials are tried before /etc/shadow.  If the password file
+# is empty or does not contain the user, authentication falls through to pam_unix.
+# If the user exists in the password file but the password is wrong, access is
+# denied instead of falling back to /etc/shadow.
+
+auth	[success=2 user_unknown=ignore authinfo_unavail=ignore default=die]	pam_pwdfile.so pwdfile=@ADMIN_USER_PWDFILE@
+auth	[success=1 default=ignore]	pam_unix.so
+auth	requisite			pam_deny.so
+auth	required			pam_permit.so
