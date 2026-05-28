@@ -6,6 +6,7 @@ inherit core-image
 IMAGE_FEATURES += "read-only-rootfs"
 
 IMAGE_INSTALL = " \
+    sudo \
     ncurses-terminfo-base \
     packagegroup-core-boot \
     ${CORE_IMAGE_EXTRA_INSTALL} \
