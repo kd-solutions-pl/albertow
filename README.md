@@ -21,6 +21,31 @@ Albertow is a project that allows creating independent virtual machines for immu
     . openembedded-core/oe-init-build-env
     bitbake redmine-albertow-image
 ```
+
+### Admin user
+Images include one administrative user. By default, the user is:
+
+```
+    user: admin
+    password: admin
+```
+
+On first boot with a new `/data` disk, the default password hash is initialized in
+`/data/security/shadow` It is possible to override the default user or initial password hash in `build/conf/site.conf` before building the image:
+
+```Bash
+    ADMIN_USER = "myadmin"
+    ADMIN_USER_PASSWORD = "$y$j9T$IsqVnWdqA.B4zwuVSYpEq1$3lfGGWjnx7CkT3SpHNK8eeQrmMc3UcWQRgxXMLBODp0"
+```
+Generate password hash with:
+
+```Bash
+    mkpasswd -m yescrypt
+```
+If you don't have this command then install `whois` package (Debian / Ubuntu), like
+```Bash
+    sudo apt install whois
+```
 ## Running images with QEMU
 Use `meta-albertow/scripts/run-qemu` for booting a built image with a read-only
 squashfs root filesystem and a persistent ext4 data disk mounted by the image
