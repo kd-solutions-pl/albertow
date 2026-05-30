@@ -5,6 +5,9 @@ SRC_URI:append = " \
 
 PACKAGECONFIG:remove = "networkd timesyncd"
 
+EXTRA_OEMESON:append = " -Dhwdb=false"
+RRECOMMENDS:${PN}:remove = "udev-hwdb ${PN}-mime"
+
 do_install:append() {
     rm -f ${D}${nonarch_libdir}/tmpfiles.d/legacy.conf
 }
