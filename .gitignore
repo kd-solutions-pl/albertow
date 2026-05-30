@@ -1,3 +1,4 @@
 bitbake
 build
 openembedded-core
+meta-redmine

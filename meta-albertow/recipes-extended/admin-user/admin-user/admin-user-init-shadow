@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+. /etc/default/admin-user
+
+pwdfile="$ADMIN_USER_PWDFILE"
+tmp="${pwdfile}.$$"
+
+if ! awk -F: -v user="$ADMIN_USER" '$1 == user { found = 1 } END { exit !found }' /etc/passwd; then
+    printf 'User does not exist: %s\n' "$ADMIN_USER" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$pwdfile")"
+chmod 0700 "$(dirname "$pwdfile")"
+
+if [ ! -e "$pwdfile" ]; then
+    touch "$tmp"
+    chmod 0600 "$tmp"
+    printf '%s:%s\n' "$ADMIN_USER" "$ADMIN_USER_PASSWORD" > "$tmp"
+    mv "$tmp" "$pwdfile"
+fi
+
+if awk -F: -v user="$ADMIN_USER" '$1 == user && $2 == "" { found = 1 } END { exit !found }' "$pwdfile"; then
+    printf 'Empty password field is not allowed for user: %s\n' "$ADMIN_USER" >&2
+    exit 1
+fi
+
+chmod 0600 "$pwdfile"
