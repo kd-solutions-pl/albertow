@@ -51,6 +51,9 @@ Use `meta-albertow/scripts/run-qemu` for booting a built image with a read-only
 squashfs root filesystem and a persistent ext4 data disk mounted by the image
 at `/data`.
 
+The script requires QEMU 10.2.0 or newer and validates the QEMU executable
+before starting. Older QEMU versions are rejected.
+
 The script expects:
 
 ```Bash

@@ -9,7 +9,7 @@ BACKGROUND="${BACKGROUND:-0}"
 TELNET_HOST="${TELNET_HOST:-127.0.0.1}"
 TELNET_PORT="${TELNET_PORT:-4321}"
 PIDFILE="${PIDFILE:-}"
-KVM_ARGS=""
+ACCEL_ARGS="-accel tcg"
 LOCK_HELD=0
 LOCK_DIR=""
 
@@ -42,6 +42,7 @@ Environment:
   HTTP_PORT   Host HTTP forwarding port. Default: 3000
   HOST_IP     Host interface for forwarded ports. Default: 0.0.0.0
   QEMU        qemu-system executable.
+              QEMU 10.2.0 or newer is required.
   BACKGROUND  Set to 1 to enable background mode.
   TELNET_HOST Host interface for background telnet console. Default: 127.0.0.1
   TELNET_PORT Host telnet console port. Default: 4321
@@ -124,6 +125,25 @@ transfer_lock_to_qemu() {
     LOCK_HELD=0
 }
 
+require_modern_qemu() {
+    version_line="$("${QEMU}" --version 2>/dev/null | sed -n '1p' || true)"
+    version="$(printf '%s\n' "${version_line}" | sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p')"
+    major="$(printf '%s\n' "${version}" | cut -d. -f1)"
+    minor="$(printf '%s\n' "${version}" | cut -d. -f2)"
+
+    if [ -z "${major}" ] || [ -z "${minor}" ]; then
+        echo "Could not determine QEMU version from: ${version_line}" >&2
+        echo "QEMU 10.2.0 or newer is required." >&2
+        exit 1
+    fi
+
+    if [ "${major}" -lt 10 ] || { [ "${major}" -eq 10 ] && [ "${minor}" -lt 2 ]; }; then
+        echo "Unsupported QEMU version: ${version}" >&2
+        echo "QEMU 10.2.0 or newer is required." >&2
+        exit 1
+    fi
+}
+
 ARCH=""
 IMAGE=""
 while [ "$#" -gt 0 ]; do
@@ -199,8 +219,8 @@ case "${ARCH}" in
         KERNEL_NAME="Image-${MACHINE}.bin"
         QEMU_DEFAULT="qemu-system-aarch64"
         MACHINE_ARGS="-machine virt -cpu cortex-a57"
-        SERIAL_ARGS=""
-        APPEND_EXTRA="console=ttyAMA0,115200"
+        SERIAL_DEVICE_ARGS="-device pci-serial,chardev=serial0"
+        APPEND_EXTRA="console=ttyS0,115200"
         ;;
     x86-64)
         ARCH="x86-64"
@@ -208,7 +228,7 @@ case "${ARCH}" in
         KERNEL_NAME="bzImage-${MACHINE}.bin"
         QEMU_DEFAULT="qemu-system-x86_64"
         MACHINE_ARGS="-machine q35,i8042=off -cpu Skylake-Client"
-        SERIAL_ARGS="-serial mon:stdio"
+        SERIAL_DEVICE_ARGS="-device pci-serial,chardev=serial0"
         APPEND_EXTRA="console=ttyS0,115200 oprofile.timer=1 tsc=reliable no_timer_check rcupdate.rcu_expedited=1"
         ;;
     kvm|KVM)
@@ -220,9 +240,9 @@ case "${ARCH}" in
                 KERNEL_NAME="Image-${MACHINE}.bin"
                 QEMU_DEFAULT="qemu-system-aarch64"
                 MACHINE_ARGS="-machine virt -cpu host"
-                KVM_ARGS="-enable-kvm"
-                SERIAL_ARGS=""
-                APPEND_EXTRA="console=ttyAMA0,115200"
+                ACCEL_ARGS="-accel kvm"
+                SERIAL_DEVICE_ARGS="-device pci-serial,chardev=serial0"
+                APPEND_EXTRA="console=ttyS0,115200"
                 ;;
             x86_64|amd64)
                 ARCH="x86-64"
@@ -230,8 +250,8 @@ case "${ARCH}" in
                 KERNEL_NAME="bzImage-${MACHINE}.bin"
                 QEMU_DEFAULT="qemu-system-x86_64"
                 MACHINE_ARGS="-machine q35,i8042=off -cpu host"
-                KVM_ARGS="-enable-kvm"
-                SERIAL_ARGS="-serial mon:stdio"
+                ACCEL_ARGS="-accel kvm"
+                SERIAL_DEVICE_ARGS="-device pci-serial,chardev=serial0"
                 APPEND_EXTRA="console=ttyS0,115200 oprofile.timer=1 tsc=reliable no_timer_check rcupdate.rcu_expedited=1"
                 ;;
             *)
@@ -271,12 +291,13 @@ DATA_IMAGE="${DATA_IMAGE:-$HOME/${IMAGE}.data.ext4}"
 
 if [ "${BACKGROUND}" = "1" ]; then
     PIDFILE="${PIDFILE:-$HOME/${IMAGE}.${MACHINE}.qemu.pid}"
-    SERIAL_ARGS="-serial telnet:${TELNET_HOST}:${TELNET_PORT},server,nowait"
+    SERIAL_CHARDEV_ARGS="-chardev socket,id=serial0,host=${TELNET_HOST},port=${TELNET_PORT},server=on,wait=off,telnet=on"
     BACKGROUND_ARGS="-daemonize -pidfile ${PIDFILE} -monitor none"
     DISPLAY_ARGS="-display none"
 else
+    SERIAL_CHARDEV_ARGS="-chardev stdio,id=serial0,signal=off"
     BACKGROUND_ARGS=""
-    DISPLAY_ARGS="-nographic"
+    DISPLAY_ARGS="-display none"
 fi
 
 for path in "${KERNEL}" "${ROOTFS}"; do
@@ -291,6 +312,7 @@ if ! command -v "${QEMU}" >/dev/null 2>&1; then
     exit 1
 fi
 
+require_modern_qemu
 acquire_data_image_lock
 
 if [ ! -e "${DATA_IMAGE}" ]; then
@@ -324,15 +346,18 @@ run_qemu() {
     # Use virtio block for rootfs so the kernel sees it as /dev/vda, matching the
     # qemuboot configuration generated for qemux86-64 and qemuarm64.
     "${QEMU}" \
-        ${KVM_ARGS} \
+        -nodefaults \
+        ${ACCEL_ARGS} \
         ${MACHINE_ARGS} \
         -m 2048 \
         -smp 4 \
         -kernel "${KERNEL}" \
-        -drive if=none,file="${ROOTFS}",format=raw,id=drive0 \
-        -device virtio-blk-pci,drive=drive0,id=blk0 \
-        -drive if=none,file="${DATA_IMAGE}",format=raw,id=drive1 \
-        -device virtio-blk-pci,drive=drive1,id=blk1 \
+        -blockdev driver=file,node-name=rootfs_file,filename="${ROOTFS}" \
+        -blockdev driver=raw,node-name=rootfs,file=rootfs_file,read-only=on \
+        -device virtio-blk-pci,drive=rootfs,id=blk0 \
+        -blockdev driver=file,node-name=data_file,filename="${DATA_IMAGE}" \
+        -blockdev driver=raw,node-name=data,file=data_file \
+        -device virtio-blk-pci,drive=data,id=blk1 \
         -netdev user,id=net0,hostfwd=tcp:"${HOST_IP}":"${SSH_PORT}"-:22,hostfwd=tcp:"${HOST_IP}":"${HTTP_PORT}"-:3000 \
         -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:02 \
         -object rng-random,filename=/dev/urandom,id=rng0 \
@@ -340,8 +365,9 @@ run_qemu() {
         -device virtio-serial-pci \
         -chardev null,id=virtcon \
         -device virtconsole,chardev=virtcon \
+        ${SERIAL_CHARDEV_ARGS} \
+        ${SERIAL_DEVICE_ARGS} \
         ${BACKGROUND_ARGS} \
-        ${SERIAL_ARGS} \
         ${DISPLAY_ARGS} \
         -append "root=/dev/vda rootwait rootfstype=squashfs ro ${APPEND_EXTRA} ip=dhcp net.ifnames=0 swiotlb=0"
 }
