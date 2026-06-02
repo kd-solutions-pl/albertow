@@ -1,21 +1,33 @@
 #!/bin/sh
 set -eu
 
-ARCH="${1:-}"
-IMAGE="${2:-}"
-
 SSH_PORT="${SSH_PORT:-2222}"
 HTTP_PORT="${HTTP_PORT:-3000}"
 HOST_IP="${HOST_IP:-0.0.0.0}"
 DATA_SIZE="${DATA_SIZE:-2G}"
+BACKGROUND="${BACKGROUND:-0}"
+TELNET_HOST="${TELNET_HOST:-127.0.0.1}"
+TELNET_PORT="${TELNET_PORT:-4321}"
+PIDFILE="${PIDFILE:-}"
 KVM_ARGS=""
+LOCK_HELD=0
+LOCK_DIR=""
 
 usage() {
     cat <<'EOF'
-Usage: run-qemu ARCH IMAGE
+Usage: run-qemu [options] ARCH IMAGE
 
 Boot IMAGE with a read-only squashfs rootfs on /dev/vda and a persistent ext4
 data disk mounted by the image at /data.
+
+Options:
+  -b, --background       Run QEMU in the background and expose the serial login
+                         console over telnet.
+  --telnet-host HOST     Host interface for telnet console. Default: 127.0.0.1
+  --telnet-port PORT     Host telnet console port. Default: 4321
+  --pidfile FILE         QEMU pidfile for background mode. Default:
+                         $HOME/IMAGE.MACHINE.qemu.pid
+  -h, --help             Show this help.
 
 Architectures:
   aarch64
@@ -30,14 +42,151 @@ Environment:
   HTTP_PORT   Host HTTP forwarding port. Default: 3000
   HOST_IP     Host interface for forwarded ports. Default: 0.0.0.0
   QEMU        qemu-system executable.
+  BACKGROUND  Set to 1 to enable background mode.
+  TELNET_HOST Host interface for background telnet console. Default: 127.0.0.1
+  TELNET_PORT Host telnet console port. Default: 4321
+  PIDFILE     QEMU pidfile for background mode.
 
 Examples:
   scripts/run-qemu aarch64 redmine-image
   scripts/run-qemu x86-64 redmine-test-image
   scripts/run-qemu kvm redmine-test-image
+  scripts/run-qemu --background --telnet-port 4321 x86-64 redmine-test-image
   DATA_IMAGE=./redmine-data.ext4 scripts/run-qemu x86-64
+
+Connect to the background login console with:
+  telnet 127.0.0.1 4321
 EOF
 }
+
+missing_option_value() {
+    echo "Missing value for $1" >&2
+    usage >&2
+    exit 2
+}
+
+cleanup_lock() {
+    if [ "${LOCK_HELD}" = "1" ] && [ -n "${LOCK_DIR}" ] && [ -d "${LOCK_DIR}" ]; then
+        lock_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+        if [ "${lock_pid}" = "$$" ]; then
+            rm -f "${LOCK_DIR}/pid" "${LOCK_DIR}/data-image" "${LOCK_DIR}/mode"
+            rmdir "${LOCK_DIR}" 2>/dev/null || true
+        fi
+    fi
+}
+
+process_is_running() {
+    [ -n "$1" ] && kill -0 "$1" 2>/dev/null
+}
+
+acquire_data_image_lock() {
+    data_dir="$(dirname "${DATA_IMAGE}")"
+    data_base="$(basename "${DATA_IMAGE}")"
+    if ! data_dir_abs="$(cd "${data_dir}" && pwd -P)"; then
+        echo "Data image directory does not exist: ${data_dir}" >&2
+        exit 1
+    fi
+
+    LOCK_DIR="${data_dir_abs}/.${data_base}.lock"
+
+    while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+        lock_pid="$(cat "${LOCK_DIR}/pid" 2>/dev/null || true)"
+        if process_is_running "${lock_pid}"; then
+            echo "Data image is already locked by process ${lock_pid}: ${DATA_IMAGE}" >&2
+            echo "Refusing to start another QEMU instance with the same DATA_IMAGE." >&2
+            exit 1
+        fi
+
+        echo "Removing stale data image lock: ${LOCK_DIR}" >&2
+        rm -f "${LOCK_DIR}/pid" "${LOCK_DIR}/data-image" "${LOCK_DIR}/mode"
+        if ! rmdir "${LOCK_DIR}" 2>/dev/null; then
+            echo "Could not remove stale lock directory: ${LOCK_DIR}" >&2
+            exit 1
+        fi
+    done
+
+    LOCK_HELD=1
+    trap cleanup_lock EXIT HUP INT TERM
+    printf '%s\n' "$$" > "${LOCK_DIR}/pid"
+    printf '%s\n' "${DATA_IMAGE}" > "${LOCK_DIR}/data-image"
+    printf '%s\n' "launcher" > "${LOCK_DIR}/mode"
+}
+
+transfer_lock_to_qemu() {
+    qemu_pid="$(cat "${PIDFILE}" 2>/dev/null || true)"
+    if ! process_is_running "${qemu_pid}"; then
+        echo "QEMU did not leave a running pid in ${PIDFILE}" >&2
+        return 1
+    fi
+
+    printf '%s\n' "${qemu_pid}" > "${LOCK_DIR}/pid"
+    printf '%s\n' "qemu" > "${LOCK_DIR}/mode"
+    LOCK_HELD=0
+}
+
+ARCH=""
+IMAGE=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -b|--background)
+            BACKGROUND=1
+            shift
+            ;;
+        --telnet-host)
+            [ "$#" -ge 2 ] || missing_option_value "$1"
+            TELNET_HOST="$2"
+            shift 2
+            ;;
+        --telnet-port)
+            [ "$#" -ge 2 ] || missing_option_value "$1"
+            TELNET_PORT="$2"
+            shift 2
+            ;;
+        --pidfile)
+            [ "$#" -ge 2 ] || missing_option_value "$1"
+            PIDFILE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        -*)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+        *)
+            if [ -z "${ARCH}" ]; then
+                ARCH="$1"
+            elif [ -z "${IMAGE}" ]; then
+                IMAGE="$1"
+            else
+                echo "Unexpected argument: $1" >&2
+                usage >&2
+                exit 2
+            fi
+            shift
+            ;;
+    esac
+done
+
+while [ "$#" -gt 0 ]; do
+    if [ -z "${ARCH}" ]; then
+        ARCH="$1"
+    elif [ -z "${IMAGE}" ]; then
+        IMAGE="$1"
+    else
+        echo "Unexpected argument: $1" >&2
+        usage >&2
+        exit 2
+    fi
+    shift
+done
 
 case "${ARCH}" in
     -h|--help|"")
@@ -120,6 +269,16 @@ KERNEL="${DEPLOY}/${KERNEL_NAME}"
 ROOTFS="${DEPLOY}/${IMAGE}-${MACHINE}.rootfs.squashfs"
 DATA_IMAGE="${DATA_IMAGE:-$HOME/${IMAGE}.data.ext4}"
 
+if [ "${BACKGROUND}" = "1" ]; then
+    PIDFILE="${PIDFILE:-$HOME/${IMAGE}.${MACHINE}.qemu.pid}"
+    SERIAL_ARGS="-serial telnet:${TELNET_HOST}:${TELNET_PORT},server,nowait"
+    BACKGROUND_ARGS="-daemonize -pidfile ${PIDFILE} -monitor none"
+    DISPLAY_ARGS="-display none"
+else
+    BACKGROUND_ARGS=""
+    DISPLAY_ARGS="-nographic"
+fi
+
 for path in "${KERNEL}" "${ROOTFS}"; do
     if [ ! -e "${path}" ]; then
         echo "Missing required file: ${path}" >&2
@@ -131,6 +290,8 @@ if ! command -v "${QEMU}" >/dev/null 2>&1; then
     echo "Missing QEMU executable: ${QEMU}" >&2
     exit 1
 fi
+
+acquire_data_image_lock
 
 if [ ! -e "${DATA_IMAGE}" ]; then
     if ! command -v truncate >/dev/null 2>&1; then
@@ -153,25 +314,41 @@ elif command -v blkid >/dev/null 2>&1; then
     fi
 fi
 
-# Use virtio block for rootfs so the kernel sees it as /dev/vda, matching the
-# qemuboot configuration generated for qemux86-64 and qemuarm64.
-exec "${QEMU}" \
-    ${KVM_ARGS} \
-    ${MACHINE_ARGS} \
-    -m 2048 \
-    -smp 4 \
-    -kernel "${KERNEL}" \
-    -drive if=none,file="${ROOTFS}",format=raw,id=drive0 \
-    -device virtio-blk-pci,drive=drive0,id=blk0 \
-    -drive if=none,file="${DATA_IMAGE}",format=raw,id=drive1 \
-    -device virtio-blk-pci,drive=drive1,id=blk1 \
-    -netdev user,id=net0,hostfwd=tcp:"${HOST_IP}":"${SSH_PORT}"-:22,hostfwd=tcp:"${HOST_IP}":"${HTTP_PORT}"-:3000 \
-    -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:02 \
-    -object rng-random,filename=/dev/urandom,id=rng0 \
-    -device virtio-rng-pci,rng=rng0 \
-    -device virtio-serial-pci \
-    -chardev null,id=virtcon \
-    -device virtconsole,chardev=virtcon \
-    ${SERIAL_ARGS} \
-    -nographic \
-    -append "root=/dev/vda rootwait rootfstype=squashfs ro ${APPEND_EXTRA} ip=dhcp net.ifnames=0 swiotlb=0"
+if [ "${BACKGROUND}" = "1" ]; then
+    echo "Starting QEMU in background"
+    echo "  Telnet console: telnet ${TELNET_HOST} ${TELNET_PORT}"
+    echo "  PID file:       ${PIDFILE}"
+fi
+
+run_qemu() {
+    # Use virtio block for rootfs so the kernel sees it as /dev/vda, matching the
+    # qemuboot configuration generated for qemux86-64 and qemuarm64.
+    "${QEMU}" \
+        ${KVM_ARGS} \
+        ${MACHINE_ARGS} \
+        -m 2048 \
+        -smp 4 \
+        -kernel "${KERNEL}" \
+        -drive if=none,file="${ROOTFS}",format=raw,id=drive0 \
+        -device virtio-blk-pci,drive=drive0,id=blk0 \
+        -drive if=none,file="${DATA_IMAGE}",format=raw,id=drive1 \
+        -device virtio-blk-pci,drive=drive1,id=blk1 \
+        -netdev user,id=net0,hostfwd=tcp:"${HOST_IP}":"${SSH_PORT}"-:22,hostfwd=tcp:"${HOST_IP}":"${HTTP_PORT}"-:3000 \
+        -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:02 \
+        -object rng-random,filename=/dev/urandom,id=rng0 \
+        -device virtio-rng-pci,rng=rng0 \
+        -device virtio-serial-pci \
+        -chardev null,id=virtcon \
+        -device virtconsole,chardev=virtcon \
+        ${BACKGROUND_ARGS} \
+        ${SERIAL_ARGS} \
+        ${DISPLAY_ARGS} \
+        -append "root=/dev/vda rootwait rootfstype=squashfs ro ${APPEND_EXTRA} ip=dhcp net.ifnames=0 swiotlb=0"
+}
+
+if [ "${BACKGROUND}" = "1" ]; then
+    run_qemu
+    transfer_lock_to_qemu
+else
+    run_qemu
+fi

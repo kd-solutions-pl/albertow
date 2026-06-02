@@ -106,10 +106,151 @@ If it does not exist, the script creates it as ext4. Use `DATA_IMAGE` to keep th
     DATA_IMAGE=./redmine-image.data.ext4 meta-albertow/scripts/run-qemu aarch64 redmine-albertow-image
 ```
 
+Only one QEMU instance may use a given `DATA_IMAGE` at a time. `run-qemu`
+creates a lock next to the data image and refuses to start another instance
+while the lock owner process is still running.
+
 Set the data image size when it is first created:
 
 ```Bash
     DATA_IMAGE=./redmine-image.data.ext4 DATA_SIZE=4G meta-albertow/scripts/run-qemu aarch64 redmine-albertow-image
+```
+
+Run QEMU in the background and expose the serial login console over telnet:
+
+```Bash
+    meta-albertow/scripts/run-qemu --background --telnet-port 4321 kvm redmine-albertow-image
+```
+
+Connect to the login prompt:
+
+```Bash
+    telnet 127.0.0.1 4321
+```
+
+The telnet console listens on `127.0.0.1` by default. Use `--telnet-host` if it
+must listen on another interface. Background mode writes a QEMU pidfile to:
+
+```Bash
+    $HOME/$IMAGE.$MACHINE.qemu.pid
+```
+
+### Run QEMU with a user systemd service
+`meta-albertow/scripts/albertow-qemu@.service` starts `run-qemu` in background
+mode and exposes the serial login console over telnet. Install it as a user
+service:
+
+```Bash
+    mkdir -p ~/.config/systemd/user
+    ln -sf "$PWD/meta-albertow/scripts/albertow-qemu@.service" \
+        ~/.config/systemd/user/albertow-qemu@.service
+    systemctl --user daemon-reload
+```
+
+The service instance name after `@` is passed to `run-qemu` as the image name.
+For example:
+
+```Bash
+    albertow-qemu@redmine-albertow-image.service
+```
+
+starts:
+
+```Bash
+    meta-albertow/scripts/run-qemu kvm redmine-albertow-image
+```
+
+With `ALBERTOW_ARCH=kvm` on an x86-64 host, `run-qemu` uses
+`MACHINE=qemux86-64`. By default, the required deploy artifacts are:
+
+```Bash
+    build/tmp/deploy/images/qemux86-64/bzImage-qemux86-64.bin
+    build/tmp/deploy/images/qemux86-64/redmine-albertow-image-qemux86-64.rootfs.squashfs
+```
+
+To keep the kernel and rootfs elsewhere, set `DEPLOY` in the instance
+environment file. The directory named by `DEPLOY` must contain:
+
+```Bash
+    bzImage-qemux86-64.bin
+    redmine-albertow-image-qemux86-64.rootfs.squashfs
+```
+
+Create a per-instance environment file for `redmine-albertow-image`:
+
+```Bash
+    mkdir -p ~/.config/albertow
+    cat > ~/.config/albertow/qemu-redmine-albertow-image.env <<'EOF'
+ALBERTOW_ARCH=kvm
+DEPLOY=/home/drabina/install/qemu-images/redmine
+TELNET_PORT=4321
+SSH_PORT=2222
+HTTP_PORT=3000
+DATA_IMAGE=/home/drabina/install/qemu-data/redmine-albertow-image.data.ext4
+EOF
+```
+
+Use a different `TELNET_PORT`, `SSH_PORT`, `HTTP_PORT`, and `DATA_IMAGE` for
+each concurrently running QEMU instance.
+
+Start the Redmine image:
+
+```Bash
+    systemctl --user start albertow-qemu@redmine-albertow-image.service
+```
+
+Connect to the login prompt:
+
+```Bash
+    telnet 127.0.0.1 4321
+```
+
+Check status and logs:
+
+```Bash
+    systemctl --user status albertow-qemu@redmine-albertow-image.service
+    journalctl --user -u albertow-qemu@redmine-albertow-image.service
+```
+
+Stop QEMU safely through systemd:
+
+```Bash
+    systemctl --user stop albertow-qemu@redmine-albertow-image.service
+```
+
+After stopping, confirm that the service is inactive before reusing the same
+data image:
+
+```Bash
+    systemctl --user is-active albertow-qemu@redmine-albertow-image.service
+```
+
+To start this QEMU instance automatically at host boot without logging in, enable
+linger for your user and enable the user service:
+
+```Bash
+    sudo loginctl enable-linger "$USER"
+    systemctl --user enable albertow-qemu@redmine-albertow-image.service
+```
+
+Start it immediately as well, if it is not already running:
+
+```Bash
+    systemctl --user start albertow-qemu@redmine-albertow-image.service
+```
+
+After reboot, check that systemd started the instance:
+
+```Bash
+    systemctl --user status albertow-qemu@redmine-albertow-image.service
+    telnet 127.0.0.1 4321
+```
+
+Disable automatic boot start later with:
+
+```Bash
+    systemctl --user disable albertow-qemu@redmine-albertow-image.service
+    sudo loginctl disable-linger "$USER"
 ```
 
 Host port forwarding defaults:
