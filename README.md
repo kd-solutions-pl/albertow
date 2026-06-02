@@ -80,13 +80,20 @@ Run a native image with KVM acceleration:
     meta-albertow/scripts/run-qemu kvm redmine-albertow-image
 ```
 
-On an x86-64 host, `kvm` uses `MACHINE=qemux86-64`. On an aarch64 host, `kvm` uses `MACHINE=qemuarm64`
+On an x86-64 host, `kvm` uses `MACHINE=albertow-qemux86-64`.
+On an aarch64 host, `kvm` uses `MACHINE=albertow-qemuarm64`.
+Use these Albertow machine names when building images:
+
+```Bash
+    MACHINE=albertow-qemuarm64 bitbake albertow-image
+    MACHINE=albertow-qemux86-64 bitbake albertow-image
+```
 
 By default, the script looks for deploy artifacts in:
 
 ```Bash
-    build/tmp/deploy/images/qemuarm64
-    build/tmp/deploy/images/qemux86-64
+    build/tmp/deploy/images/albertow-qemuarm64
+    build/tmp/deploy/images/albertow-qemux86-64
 ```
 
 For a fully functional QEMU boot, DEPLOY directory must provide the kernel and squashfs root filesystem.
@@ -94,7 +101,7 @@ For a fully functional QEMU boot, DEPLOY directory must provide the kernel and s
 Override the deploy directory when needed:
 
 ```Bash
-    DEPLOY=/path/to/tmp/deploy/images/qemuarm64 meta-albertow/scripts/run-qemu aarch64 redmine-albertow-image
+    DEPLOY=/path/to/tmp/deploy/images/albertow-qemuarm64 meta-albertow/scripts/run-qemu aarch64 redmine-albertow-image
 ```
 
 The persistent data image defaults to:
@@ -164,19 +171,19 @@ starts:
 ```
 
 With `ALBERTOW_ARCH=kvm` on an x86-64 host, `run-qemu` uses
-`MACHINE=qemux86-64`. By default, the required deploy artifacts are:
+`MACHINE=albertow-qemux86-64`. By default, the required deploy artifacts are:
 
 ```Bash
-    build/tmp/deploy/images/qemux86-64/bzImage-qemux86-64.bin
-    build/tmp/deploy/images/qemux86-64/redmine-albertow-image-qemux86-64.rootfs.squashfs
+    build/tmp/deploy/images/albertow-qemux86-64/bzImage-albertow-qemux86-64.bin
+    build/tmp/deploy/images/albertow-qemux86-64/redmine-albertow-image-albertow-qemux86-64.rootfs.squashfs
 ```
 
 To keep the kernel and rootfs elsewhere, set `DEPLOY` in the instance
 environment file. The directory named by `DEPLOY` must contain:
 
 ```Bash
-    bzImage-qemux86-64.bin
-    redmine-albertow-image-qemux86-64.rootfs.squashfs
+    bzImage-albertow-qemux86-64.bin
+    redmine-albertow-image-albertow-qemux86-64.rootfs.squashfs
 ```
 
 Create a per-instance environment file for `redmine-albertow-image`:

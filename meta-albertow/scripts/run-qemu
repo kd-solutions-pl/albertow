@@ -215,7 +215,7 @@ case "${ARCH}" in
         ;;
     aarch64)
         ARCH="aarch64"
-        MACHINE="qemuarm64"
+        MACHINE="albertow-qemuarm64"
         KERNEL_NAME="Image-${MACHINE}.bin"
         QEMU_DEFAULT="qemu-system-aarch64"
         MACHINE_ARGS="-machine virt -cpu cortex-a57"
@@ -224,7 +224,7 @@ case "${ARCH}" in
         ;;
     x86-64)
         ARCH="x86-64"
-        MACHINE="qemux86-64"
+        MACHINE="albertow-qemux86-64"
         KERNEL_NAME="bzImage-${MACHINE}.bin"
         QEMU_DEFAULT="qemu-system-x86_64"
         MACHINE_ARGS="-machine q35,i8042=off -cpu Skylake-Client"
@@ -236,7 +236,7 @@ case "${ARCH}" in
         case "${HOST_ARCH}" in
             aarch64|arm64)
                 ARCH="aarch64"
-                MACHINE="qemuarm64"
+                MACHINE="albertow-qemuarm64"
                 KERNEL_NAME="Image-${MACHINE}.bin"
                 QEMU_DEFAULT="qemu-system-aarch64"
                 MACHINE_ARGS="-machine virt -cpu host"
@@ -246,7 +246,7 @@ case "${ARCH}" in
                 ;;
             x86_64|amd64)
                 ARCH="x86-64"
-                MACHINE="qemux86-64"
+                MACHINE="albertow-qemux86-64"
                 KERNEL_NAME="bzImage-${MACHINE}.bin"
                 QEMU_DEFAULT="qemu-system-x86_64"
                 MACHINE_ARGS="-machine q35,i8042=off -cpu host"
@@ -344,7 +344,7 @@ fi
 
 run_qemu() {
     # Use virtio block for rootfs so the kernel sees it as /dev/vda, matching the
-    # qemuboot configuration generated for qemux86-64 and qemuarm64.
+    # qemuboot configuration generated for the Albertow QEMU machines.
     "${QEMU}" \
         -nodefaults \
         ${ACCEL_ARGS} \
