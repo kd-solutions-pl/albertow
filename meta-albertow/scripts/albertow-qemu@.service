@@ -1,0 +1,16 @@
+[Unit]
+Description=Albertow QEMU instance for %i
+After=network.target
+
+[Service]
+Type=forking
+Environment=ALBERTOW_IMAGE=%i
+Environment=PIDFILE=%t/albertow-qemu-%i.pid
+EnvironmentFile=-%h/.config/albertow/qemu-%i.env
+PIDFile=%t/albertow-qemu-%i.pid
+ExecStart=%h/install/bin/run-qemu --background --telnet-port ${TELNET_PORT} --pidfile ${PIDFILE} ${ALBERTOW_ARCH} ${ALBERTOW_IMAGE}
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target
