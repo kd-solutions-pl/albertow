@@ -1,7 +1,7 @@
 header:
   version: 21
 
-machine: qemux86-64
+machine: albertow-qemux86-64
 distro: albertow
 target:
   - albertow-image
