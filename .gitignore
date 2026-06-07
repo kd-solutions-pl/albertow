@@ -1,4 +1,5 @@
 bitbake
-build
+build*
 openembedded-core
 meta-redmine
+meta-forgejo
