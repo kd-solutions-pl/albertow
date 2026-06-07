@@ -219,8 +219,8 @@ case "${ARCH}" in
         KERNEL_NAME="Image-${MACHINE}.bin"
         QEMU_DEFAULT="qemu-system-aarch64"
         MACHINE_ARGS="-machine virt -cpu cortex-a57"
-        SERIAL_DEVICE_ARGS="-device pci-serial,chardev=serial0"
-        APPEND_EXTRA="console=ttyS0,115200"
+        SERIAL_DEVICE_ARGS="-serial chardev:serial0"
+        APPEND_EXTRA="console=ttyAMA0,115200"
         ;;
     x86-64)
         ARCH="x86-64"
@@ -241,8 +241,8 @@ case "${ARCH}" in
                 QEMU_DEFAULT="qemu-system-aarch64"
                 MACHINE_ARGS="-machine virt -cpu host"
                 ACCEL_ARGS="-accel kvm"
-                SERIAL_DEVICE_ARGS="-device pci-serial,chardev=serial0"
-                APPEND_EXTRA="console=ttyS0,115200"
+                SERIAL_DEVICE_ARGS="-serial chardev:serial0"
+                APPEND_EXTRA="console=ttyAMA0,115200"
                 ;;
             x86_64|amd64)
                 ARCH="x86-64"
