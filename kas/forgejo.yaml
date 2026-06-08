@@ -1,0 +1,12 @@
+header:
+  version: 21
+  includes:
+    - kas/albertow.yaml
+
+repos:
+  meta-forgejo:
+    url: "https://github.com/kd-solutions-pl/meta-forgejo.git"
+    branch: "main"
+    layers:
+      .:
+ 
