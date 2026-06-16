@@ -3,7 +3,7 @@ SRC_URI:append = " \
     file://0001-Fix-tmpfiles-related-warnings.patch \
 "
 
-PACKAGECONFIG:remove = "networkd timesyncd"
+PACKAGECONFIG:remove = "networkd timesyncd vconsole"
 
 EXTRA_OEMESON:append = " -Dhwdb=false"
 RRECOMMENDS:${PN}:remove = "udev-hwdb ${PN}-mime"
