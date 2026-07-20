@@ -22,6 +22,13 @@ Albertow is a project that allows creating independent virtual machines for immu
     bitbake redmine-albertow-image
 ```
 
+### Forgejo image
+```Bash
+    kas checkout kas/forgejo.yaml
+    . openembedded-core/oe-init-build-env
+    bitbake forgejo-albertow-image
+```
+
 ### Admin user
 Images include one administrative user. By default, the user is:
 
