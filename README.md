@@ -42,7 +42,7 @@ On first boot with a new `/data` disk, the default password hash is initialized 
 
 ```Bash
     ADMIN_USER = "myadmin"
-    ADMIN_USER_PASSWORD = "$y$j9T$IsqVnWdqA.B4zwuVSYpEq1$3lfGGWjnx7CkT3SpHNK8eeQrmMc3UcWQRgxXMLBODp0"
+    ADMIN_USER_PASSWORD = "\$y\$j9T\$6EtCxe7ejd3McRo.7eNUs0\$l93siWsz7QYHwRZsThzTqPtlePtn0N3OkTy90HiP.s."
 ```
 Generate password hash with:
 
